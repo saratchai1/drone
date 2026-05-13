@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Drone Mesh Preview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #f5f2ea;
+        --muted: #b8b1a4;
+        --panel: rgba(28, 27, 25, 0.86);
+        --line: rgba(245, 242, 234, 0.16);
+        --accent: #86d39b;
+        --warn: #e2bd73;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #11100f;
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      #scene {
+        position: fixed;
+        inset: 0;
+      }
+
+      .toolbar {
+        position: fixed;
+        top: 14px;
+        left: 14px;
+        right: 14px;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 48px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        backdrop-filter: blur(14px);
+      }
+
+      .title {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 2px;
+        padding: 0 8px;
+      }
+
+      .title strong {
+        overflow: hidden;
+        max-width: min(62vw, 760px);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .title span,
+      .status span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .actions {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 6px;
+      }
+
+      button {
+        min-width: 42px;
+        height: 32px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: rgba(245, 242, 234, 0.08);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      button:hover {
+        border-color: rgba(134, 211, 155, 0.7);
+        background: rgba(134, 211, 155, 0.14);
+      }
+
+      button.active {
+        border-color: var(--accent);
+        color: #dff9e6;
+      }
+
+      .status {
+        position: fixed;
+        left: 14px;
+        bottom: 14px;
+        z-index: 2;
+        display: grid;
+        gap: 4px;
+        max-width: min(460px, calc(100vw - 28px));
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        backdrop-filter: blur(14px);
+      }
+
+      .meter {
+        width: 220px;
+        max-width: calc(100vw - 52px);
+        height: 4px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(245, 242, 234, 0.14);
+      }
+
+      .bar {
+        width: 0%;
+        height: 100%;
+        background: var(--accent);
+        transition: width 160ms ease;
+      }
+
+      .error {
+        color: var(--warn);
+      }
+
+      @media (max-width: 680px) {
+        .toolbar {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .title strong {
+          max-width: calc(100vw - 54px);
+        }
+
+        .actions {
+          flex-wrap: wrap;
+        }
+
+        button {
+          flex: 1 1 72px;
+        }
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <header class="toolbar">
+      <div class="title">
+        <strong>F01_F02_01 Mesh Preview</strong>
+        <span id="modelInfo">loading model</span>
+      </div>
+      <div class="actions">
+        <button id="resetView" title="Reset camera">Reset</button>
+        <button id="wireframe" title="Toggle wireframe">Wire</button>
+        <button id="background" title="Toggle background">Bg</button>
+      </div>
+    </header>
+    <aside class="status">
+      <span id="statusText">Loading GLB</span>
+      <div class="meter" aria-hidden="true"><div class="bar" id="progressBar"></div></div>
+    </aside>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+      const canvas = document.querySelector("#scene");
+      const statusText = document.querySelector("#statusText");
+      const progressBar = document.querySelector("#progressBar");
+      const modelInfo = document.querySelector("#modelInfo");
+      const resetView = document.querySelector("#resetView");
+      const wireframe = document.querySelector("#wireframe");
+      const background = document.querySelector("#background");
+
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x11100f);
+
+      const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100000);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = false;
+      controls.dampingFactor = 0.08;
+      controls.screenSpacePanning = true;
+
+      const grid = new THREE.GridHelper(2200, 44, 0x504b43, 0x2d2a26);
+      grid.position.y = -70;
+      scene.add(grid);
+
+      let model = null;
+      let savedView = null;
+      let darkBackground = true;
+
+      loadModel("assets/F01_F02_01_mesh_preview_1m.glb");
+      resize();
+      animate();
+
+      resetView.addEventListener("click", () => {
+        if (!savedView) return;
+        camera.position.copy(savedView.position);
+        controls.target.copy(savedView.target);
+        controls.update();
+      });
+
+      wireframe.addEventListener("click", () => {
+        if (!model) return;
+        wireframe.classList.toggle("active");
+        const enabled = wireframe.classList.contains("active");
+        model.traverse((child) => {
+          if (child.isMesh) child.material.wireframe = enabled;
+        });
+      });
+
+      background.addEventListener("click", () => {
+        darkBackground = !darkBackground;
+        background.classList.toggle("active", !darkBackground);
+        scene.background = new THREE.Color(darkBackground ? 0x11100f : 0xd7d1c3);
+      });
+
+      window.addEventListener("resize", resize);
+
+      function loadModel(url) {
+        const loader = new GLTFLoader();
+        loader.load(
+          url,
+          (gltf) => {
+            model = gltf.scene;
+            model.traverse((child) => {
+              if (!child.isMesh) return;
+              child.frustumCulled = false;
+              child.material.side = THREE.DoubleSide;
+            });
+            scene.add(model);
+            frameObject(model);
+
+            const triangles = countTriangles(model);
+            const vertices = countVertices(model);
+            modelInfo.textContent = `${triangles.toLocaleString()} triangles / ${vertices.toLocaleString()} vertices`;
+            statusText.textContent = "Ready";
+            progressBar.style.width = "100%";
+          },
+          (event) => {
+            if (!event.total) return;
+            const pct = Math.round((event.loaded / event.total) * 100);
+            progressBar.style.width = `${pct}%`;
+            statusText.textContent = `Loading GLB ${pct}%`;
+          },
+          (error) => {
+            statusText.textContent = `Load failed: ${error.message || error}`;
+            statusText.classList.add("error");
+          }
+        );
+      }
+
+      function frameObject(object) {
+        const box = new THREE.Box3().setFromObject(object);
+        const sphere = box.getBoundingSphere(new THREE.Sphere());
+        const radius = Math.max(sphere.radius, 1);
+
+        controls.target.copy(sphere.center);
+        camera.near = Math.max(radius / 2000, 0.1);
+        camera.far = radius * 12;
+        camera.position.set(sphere.center.x, sphere.center.y + radius * 1.15, sphere.center.z + radius * 0.22);
+        camera.lookAt(sphere.center);
+        camera.updateProjectionMatrix();
+        camera.updateMatrixWorld();
+        controls.update();
+
+        savedView = {
+          position: camera.position.clone(),
+          target: controls.target.clone(),
+        };
+      }
+
+      function countTriangles(object) {
+        let count = 0;
+        object.traverse((child) => {
+          if (child.isMesh) count += child.geometry.index ? child.geometry.index.count / 3 : child.geometry.attributes.position.count / 3;
+        });
+        return count;
+      }
+
+      function countVertices(object) {
+        let count = 0;
+        object.traverse((child) => {
+          if (child.isMesh) count += child.geometry.attributes.position.count;
+        });
+        return count;
+      }
+
+      function resize() {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        renderer.setSize(width, height);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      }
+    </script>
+  </body>
+</html>
